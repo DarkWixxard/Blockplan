@@ -270,18 +270,12 @@
     outline: none;
     cursor: text;
     pointer-events: none;
-
     white-space: pre-wrap;
     word-break: break-word;
-    line-height: 1.3;
-
-    display: block;
-    align-items: center;
-
-    min-height: 20px;
-
     overflow-wrap: break-word;
-    white-space: pre-wrap;
+    line-height: 1.3;
+    display: block;
+    min-height: 20px;
   }
   .block.selected .label-input {
   pointer-events: auto;
@@ -736,7 +730,6 @@
       </div>
       <div class="prop-group">
         <span class="prop-label">Farbe</span>
-        // ─── Color Swatches ─────────────────────────────────────────────────────────────
         <div class="color-swatches">
           <div class="swatch active" data-color="" style="background:#1e2235;border-color:#3d4270"></div>
           <div class="swatch" data-color="blue"   style="background:rgba(91,138,255,0.3)"></div>
@@ -774,39 +767,68 @@
 
 <script>
 // ─── STATE ────────────────────────────────────────────────────────────────────
-let blocks = [];
-let connections = [];
+let blocks        = [];
+let connections   = [];
 let selectedBlock = null;
-let selectionBox = null;
-let isSelecting = false;
+let selectionBox  = null;
+let isSelecting   = false;
 let selectedBlocks = [];
-let selectionStart = {x:0,y:0};
-let selectedConn = null;
-let connectMode = false;
-let connectFrom = null; // {block, port}
-let idCounter = 0;
-let dragOffset = {x:0,y:0};
+let selectionStart = { x: 0, y: 0 };
+let selectedConn  = null;
+let connectMode   = false;
+let connectFrom   = null; // {block, port}
+let idCounter     = 0;
+let dragOffset    = { x: 0, y: 0 };
 let deleteLineMode = false;
 
-const canvas = document.getElementById('canvas');
-const svgLayer = document.getElementById('svg-layer');
-const tempLine = document.getElementById('temp-line');
+// ─── DOM REFS ─────────────────────────────────────────────────────────────────
+const canvas       = document.getElementById('canvas');
+const svgLayer     = document.getElementById('svg-layer');
+const tempLine     = document.getElementById('temp-line');
+const canvasWrap   = document.getElementById('canvas-wrap');
+const noSelection  = document.getElementById('no-selection');
+const propFields   = document.getElementById('prop-fields');
+const propLabel    = document.getElementById('prop-label');
+const propW        = document.getElementById('prop-w');
+const propH        = document.getElementById('prop-h');
+const propShape    = document.getElementById('prop-shape');
+const statusBlocksEl = document.getElementById('status-blocks');
+const statusConnsEl  = document.getElementById('status-conns');
+const statusModeEl   = document.getElementById('status-mode');
+const exportModal  = document.getElementById('export-modal');
+const btnConnect   = document.getElementById('btn-connect-mode');
+const btnDelConn   = document.getElementById('btn-del-conn');
+const btnClearSel  = document.getElementById('btn-clear-sel');
+
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const COLORS = {
+  blue:      { hex: '#5b8aff', exportBg: '#dbe7ff' },
+  red:       { hex: '#ff6b6b', exportBg: '#ffe0e0' },
+  green:     { hex: '#4ecdc4', exportBg: '#dcfff8' },
+  yellow:    { hex: '#ffd166', exportBg: '#fff5d6' },
+  purple:    { hex: '#c77dff', exportBg: '#f1ddff' },
+  orange:    { hex: '#ff9f43', exportBg: '#fff0e0' },
+  pink:      { hex: '#ff4fa3', exportBg: '#ffe0f0' },
+  turquoise: { hex: '#2ed3c6', exportBg: '#d0fff8' },
+};
+
+const SHAPES = {
+  rect:    { cssClass: '',               width: '130px', height: '56px'  },
+  diamond: { cssClass: ' diamond-block', width: '130px', height: '90px'  },
+  circle:  { cssClass: ' circle-block',  width: '90px',  height: '90px'  },
+  note:    { cssClass: ' note-block',    width: '180px', height: '100px' },
+};
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 function uid() { return 'b' + (++idCounter); }
 
-function getConnectionColor(block) {
-// ─── Color Helpers ─────────────────────────────────────────────────────────────
-  if(block.color === 'blue')   return '#5b8aff';
-  if(block.color === 'red')    return '#ff6b6b';
-  if(block.color === 'green')  return '#4ecdc4';
-  if(block.color === 'yellow') return '#ffd166';
-  if(block.color === 'purple') return '#c77dff';
-  if(block.color === 'orange') return '#ff9f43';
-  if(block.color === 'pink')   return '#ff4fa3';
-  if(block.color === 'turquoise') return '#2ed3c6';
+function getShapeClass(shape) {
+  return SHAPES[shape]?.cssClass ?? '';
+}
 
-  return '#5b8aff';
+// ─── Color Helpers ─────────────────────────────────────────────────────────────
+function getConnectionColor(block) {
+  return COLORS[block.color]?.hex ?? '#5b8aff';
 }
 
 function getPortPos(blockEl, port) {
@@ -814,89 +836,80 @@ function getPortPos(blockEl, port) {
   const by = parseInt(blockEl.style.top);
   const bw = blockEl.offsetWidth;
   const bh = blockEl.offsetHeight;
-  const cx = bx + bw/2, cy = by + bh/2;
+  const cx = bx + bw / 2;
+  const cy = by + bh / 2;
   switch(port) {
-    case 'top':    return {x: cx, y: by};
-    case 'bottom': return {x: cx, y: by+bh};
-    case 'left':   return {x: bx, y: cy};
-    case 'right':  return {x: bx+bw, y: cy};
+    case 'top':    return { x: cx,      y: by      };
+    case 'bottom': return { x: cx,      y: by + bh };
+    case 'left':   return { x: bx,      y: cy      };
+    case 'right':  return { x: bx + bw, y: cy      };
   }
 }
 
 function updateStatus() {
-  document.getElementById('status-blocks').textContent = `Blöcke: ${blocks.length}`;
-  document.getElementById('status-conns').textContent = `Verbindungen: ${connections.length}`;
-  document.getElementById('status-mode').textContent = `Modus: ${connectMode ? '🔗 Verbinden' : 'Normal'}`;
+  statusBlocksEl.textContent = `Blöcke: ${blocks.length}`;
+  statusConnsEl.textContent  = `Verbindungen: ${connections.length}`;
+  statusModeEl.textContent   = `Modus: ${connectMode ? '🔗 Verbinden' : 'Normal'}`;
 }
 
 // ─── BLOCK CREATION ───────────────────────────────────────────────────────────
-function createBlock(x, y, label, shape='rect') {
+function createBlock(x, y, label, shape = 'rect') {
   const id = uid();
   const el = document.createElement('div');
-  el.className = 'block' + (shape==='diamond'?' diamond-block':shape==='circle'?' circle-block':shape==='note'?' note-block':'');
-  el.id = id;
-  el.style.left = x + 'px';
-  el.style.top  = y + 'px';
-  el.style.width  = shape==='diamond'?'130px':shape==='circle'?'90px':shape==='note'?'180px':'130px';
-  el.style.height = shape==='diamond'?'90px':shape==='circle'?'90px':shape==='note'?'100px':'56px';
+  const shapeConfig = SHAPES[shape] ?? SHAPES.rect;
+  el.className = 'block' + shapeConfig.cssClass;
+  el.id        = id;
+  el.style.left   = x + 'px';
+  el.style.top    = y + 'px';
+  el.style.width  = shapeConfig.width;
+  el.style.height = shapeConfig.height;
 
-  // Ports
   if(shape !== 'note') {
-
-    ['top','bottom','left','right'].forEach(p => {
-
+    ['top', 'bottom', 'left', 'right'].forEach(p => {
       const port = document.createElement('div');
-      port.className = 'port ' + p;
+      port.className    = 'port ' + p;
       port.dataset.port = p;
       port.addEventListener('mousedown', onPortMouseDown);
-
       el.appendChild(port);
     });
   }
 
-  // Label
   const ta = document.createElement('div');
-  ta.className = 'label-input';
+  ta.className       = 'label-input';
   ta.contentEditable = (shape === 'note');
-  ta.innerText = label;
+  ta.innerText       = label;
   ta.addEventListener('input', () => {
-
-    const bd = blocks.find(b=>b.id===id);
-
-    if(bd){
-      bd.label = ta.innerText;
-    }
-
+    const blockData = blocks.find(b => b.id === id);
+    if(blockData) blockData.label = ta.innerText;
     redrawConnections();
   });
-  ta.addEventListener('mousedown', e => { if(!selectedBlock||selectedBlock.id!==id) e.stopPropagation(); });
+  ta.addEventListener('mousedown', e => {
+    if(!selectedBlock || selectedBlock.id !== id) e.stopPropagation();
+  });
   el.appendChild(ta);
 
-  // Delete btn
   const del = document.createElement('button');
-  del.className = 'del-btn';
+  del.className   = 'del-btn';
   del.textContent = '×';
   del.addEventListener('click', e => { e.stopPropagation(); deleteBlock(id); });
   el.appendChild(del);
 
-  // Drag
   el.addEventListener('mousedown', onBlockMouseDown);
-
   canvas.appendChild(el);
 
-  const blockData = {id, el, label, shape, color:'', x, y};
+  const blockData = { id, el, label, shape, color: '', x, y };
   blocks.push(blockData);
   updateStatus();
   return blockData;
 }
 
 function deleteBlock(id) {
-  const idx = blocks.findIndex(b=>b.id===id);
-  if(idx===-1) return;
+  const idx = blocks.findIndex(b => b.id === id);
+  if(idx === -1) return;
   canvas.removeChild(blocks[idx].el);
-  blocks.splice(idx,1);
-  connections = connections.filter(c=>c.from.id!==id && c.to.id!==id);
-  if(selectedBlock && selectedBlock.id===id) deselectAll();
+  blocks.splice(idx, 1);
+  connections = connections.filter(c => c.from.id !== id && c.to.id !== id);
+  if(selectedBlock && selectedBlock.id === id) deselectAll();
   redrawConnections();
   updateStatus();
 }
@@ -906,28 +919,26 @@ function selectBlock(bd) {
   deselectAll();
   selectedBlock = bd;
   bd.el.classList.add('selected');
-  // update props panel
-  document.getElementById('no-selection').style.display='none';
-  document.getElementById('prop-fields').style.display='flex';
-  document.getElementById('prop-label').value = bd.label;
-  document.getElementById('prop-w').value = parseInt(bd.el.style.width)||130;
-  document.getElementById('prop-h').value = parseInt(bd.el.style.height)||56;
-  document.getElementById('prop-shape').value = bd.shape;
-  // swatches
+  noSelection.style.display = 'none';
+  propFields.style.display  = 'flex';
+  propLabel.value = bd.label;
+  propW.value     = parseInt(bd.el.style.width)  || 130;
+  propH.value     = parseInt(bd.el.style.height) || 56;
+  propShape.value = bd.shape;
   document.querySelectorAll('.swatch').forEach(s => {
     s.classList.toggle('active', s.dataset.color === bd.color);
   });
 }
 
 function deselectAll() {
-  if(selectedBlock) { selectedBlock.el.classList.remove('selected'); selectedBlock=null; }
+  if(selectedBlock) { selectedBlock.el.classList.remove('selected'); selectedBlock = null; }
   if(selectedConn) {
-    selectedConn.el.setAttribute('stroke','#5b8aff');
-    selectedConn.el.setAttribute('marker-end','url(#arrow)');
-    selectedConn=null;
+    selectedConn.el.setAttribute('stroke', '#5b8aff');
+    selectedConn.el.setAttribute('marker-end', 'url(#arrow-blue)');
+    selectedConn = null;
   }
-  document.getElementById('no-selection').style.display='';
-  document.getElementById('prop-fields').style.display='none';
+  noSelection.style.display = '';
+  propFields.style.display  = 'none';
 }
 
 function clearMultiSelection() {
@@ -937,229 +948,162 @@ function clearMultiSelection() {
 
 function selectMultiple(blocksToSelect) {
   clearMultiSelection();
-
   selectedBlocks = blocksToSelect;
-
-  selectedBlocks.forEach(b => {
-    b.el.classList.add('selected');
-  });
+  selectedBlocks.forEach(b => b.el.classList.add('selected'));
 }
-
 
 // ─── BLOCK DRAG ───────────────────────────────────────────────────────────────
 let draggingBlock = null;
 
 function onBlockMouseDown(e) {
   if(e.target.classList.contains('port') || e.target.classList.contains('del-btn')) return;
-  if(e.target.classList.contains('label-input') && selectedBlock && selectedBlock.el===e.currentTarget) return;
+  if(e.target.classList.contains('label-input') && selectedBlock && selectedBlock.el === e.currentTarget) return;
 
-  const bd = blocks.find(b=>b.el===e.currentTarget);
+  const bd = blocks.find(b => b.el === e.currentTarget);
   if(!bd) return;
-  if(selectedBlocks.length <= 1) {
-  selectBlock(bd);
-  }
+  if(selectedBlocks.length <= 1) selectBlock(bd);
   if(connectMode) return;
 
   draggingBlock = bd;
-  const rect = canvas.getBoundingClientRect();
-  const wrap = document.getElementById('canvas-wrap').getBoundingClientRect();
-  dragOffset.x = e.clientX - (wrap.left + parseInt(bd.el.style.left));
-  dragOffset.y = e.clientY - (wrap.top  + parseInt(bd.el.style.top));
+  const wrapRect = canvasWrap.getBoundingClientRect();
+  dragOffset.x = e.clientX - (wrapRect.left + parseInt(bd.el.style.left));
+  dragOffset.y = e.clientY - (wrapRect.top  + parseInt(bd.el.style.top));
   e.preventDefault();
 }
 
 document.addEventListener('mousemove', e => {
-    if(isSelecting && selectionBox) {
+  if(isSelecting && selectionBox) {
+    const wrap = canvasWrap.getBoundingClientRect();
+    const mx   = e.clientX - wrap.left;
+    const my   = e.clientY - wrap.top;
+    const x    = Math.min(mx, selectionStart.x);
+    const y    = Math.min(my, selectionStart.y);
+    const w    = Math.abs(mx - selectionStart.x);
+    const h    = Math.abs(my - selectionStart.y);
 
-    const wrap = document.getElementById('canvas-wrap').getBoundingClientRect();
-
-    const mx = e.clientX - wrap.left;
-    const my = e.clientY - wrap.top;
-
-    const x = Math.min(mx, selectionStart.x);
-    const y = Math.min(my, selectionStart.y);
-
-    const w = Math.abs(mx - selectionStart.x);
-    const h = Math.abs(my - selectionStart.y);
-
-    selectionBox.style.left = x + 'px';
-    selectionBox.style.top  = y + 'px';
+    selectionBox.style.left   = x + 'px';
+    selectionBox.style.top    = y + 'px';
     selectionBox.style.width  = w + 'px';
     selectionBox.style.height = h + 'px';
 
     const selected = [];
-
     blocks.forEach(b => {
-
       const bx = parseInt(b.el.style.left);
       const by = parseInt(b.el.style.top);
       const bw = b.el.offsetWidth;
       const bh = b.el.offsetHeight;
-
-      const intersects =
-        bx < x + w &&
-        bx + bw > x &&
-        by < y + h &&
-        by + bh > y;
-
+      const intersects = bx < x + w && bx + bw > x && by < y + h && by + bh > y;
       b.el.classList.toggle('selected', intersects);
-
       if(intersects) selected.push(b);
     });
-
     selectedBlocks = selected;
-
     return;
   }
+
   if(draggingBlock) {
+    const wrap = canvasWrap.getBoundingClientRect();
+    const nx   = e.clientX - wrap.left - dragOffset.x;
+    const ny   = e.clientY - wrap.top  - dragOffset.y;
+    const dx   = nx - draggingBlock.x;
+    const dy   = ny - draggingBlock.y;
 
-    const wrap = document.getElementById('canvas-wrap').getBoundingClientRect();
-
-    let nx = e.clientX - wrap.left - dragOffset.x;
-    let ny = e.clientY - wrap.top  - dragOffset.y;
-
-    const dx = nx - draggingBlock.x;
-    const dy = ny - draggingBlock.y;
-
-    const moveTargets =
-      selectedBlocks.length > 1
-        ? selectedBlocks
-        : [draggingBlock];
-
+    const moveTargets = selectedBlocks.length > 1 ? selectedBlocks : [draggingBlock];
     moveTargets.forEach(b => {
-
-      let bx = b.x + dx;
-      let by = b.y + dy;
-
-      bx = Math.max(0, Math.min(bx, wrap.width  - b.el.offsetWidth));
-      by = Math.max(0, Math.min(by, wrap.height - b.el.offsetHeight));
-
-      b.x = bx;
-      b.y = by;
-
-      b.el.style.left = bx + 'px';
-      b.el.style.top  = by + 'px';
+      b.x = Math.max(0, Math.min(b.x + dx, wrap.width  - b.el.offsetWidth));
+      b.y = Math.max(0, Math.min(b.y + dy, wrap.height - b.el.offsetHeight));
+      b.el.style.left = b.x + 'px';
+      b.el.style.top  = b.y + 'px';
     });
-
     redrawConnections();
     return;
   }
+
   if(connectFrom) {
-    const wrap = document.getElementById('canvas-wrap').getBoundingClientRect();
-    const p = getPortPos(connectFrom.block.el, connectFrom.port);
-    tempLine.setAttribute('x1', p.x); tempLine.setAttribute('y1', p.y);
+    const wrap = canvasWrap.getBoundingClientRect();
+    const p    = getPortPos(connectFrom.block.el, connectFrom.port);
+    tempLine.setAttribute('x1', p.x);
+    tempLine.setAttribute('y1', p.y);
     tempLine.setAttribute('x2', e.clientX - wrap.left);
     tempLine.setAttribute('y2', e.clientY - wrap.top);
   }
 });
 
 document.addEventListener('mouseup', () => {
-
   draggingBlock = null;
-
   if(isSelecting) {
-
     isSelecting = false;
-
-    if(selectionBox) {
-      selectionBox.remove();
-      selectionBox = null;
-    }
+    if(selectionBox) { selectionBox.remove(); selectionBox = null; }
   }
 });
-document.getElementById('canvas-wrap').addEventListener('mousedown', e => {
 
-  if(e.target !== document.getElementById('canvas-wrap') &&
-     e.target !== canvas) return;
-
+canvasWrap.addEventListener('mousedown', e => {
+  if(e.target !== canvasWrap && e.target !== canvas) return;
   deselectAll();
   clearMultiSelection();
-
   isSelecting = true;
 
-  const wrap = document.getElementById('canvas-wrap').getBoundingClientRect();
-
+  const wrap = canvasWrap.getBoundingClientRect();
   selectionStart.x = e.clientX - wrap.left;
   selectionStart.y = e.clientY - wrap.top;
 
   selectionBox = document.createElement('div');
-  selectionBox.className = 'selection-box';
-
+  selectionBox.className  = 'selection-box';
   selectionBox.style.left = selectionStart.x + 'px';
   selectionBox.style.top  = selectionStart.y + 'px';
-
   canvas.appendChild(selectionBox);
 });
-
 
 // ─── CONNECTIONS ──────────────────────────────────────────────────────────────
 function onPortMouseDown(e) {
   if(!connectMode) return;
   e.stopPropagation();
-  const portEl = e.currentTarget;
+  const portEl  = e.currentTarget;
   const blockEl = portEl.parentElement;
-  const bd = blocks.find(b=>b.el===blockEl);
+  const bd = blocks.find(b => b.el === blockEl);
   if(!bd) return;
 
   if(!connectFrom) {
-    connectFrom = {block:bd, port:portEl.dataset.port};
+    connectFrom = { block: bd, port: portEl.dataset.port };
     const p = getPortPos(bd.el, portEl.dataset.port);
-    tempLine.setAttribute('x1',p.x); tempLine.setAttribute('y1',p.y);
-    tempLine.setAttribute('x2',p.x); tempLine.setAttribute('y2',p.y);
-    tempLine.style.display='';
+    tempLine.setAttribute('x1', p.x); tempLine.setAttribute('y1', p.y);
+    tempLine.setAttribute('x2', p.x); tempLine.setAttribute('y2', p.y);
+    tempLine.style.display = '';
   } else {
-    if(connectFrom.block.id===bd.id) { connectFrom=null; tempLine.style.display='none'; return; }
+    if(connectFrom.block.id === bd.id) { connectFrom = null; tempLine.style.display = 'none'; return; }
     addConnection(connectFrom.block, connectFrom.port, bd, portEl.dataset.port);
-    connectFrom=null;
-    tempLine.style.display='none';
+    connectFrom = null;
+    tempLine.style.display = 'none';
   }
 }
 
-function addConnection(fromBd, fromPort, toBd, toPort, label='') {
-  const line = document.createElementNS('http://www.w3.org/2000/svg','path');
+function addConnection(fromBd, fromPort, toBd, toPort, label = '') {
+  const line      = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   const connColor = getConnectionColor(fromBd);
 
-  line.setAttribute('stroke', connColor);
-  line.setAttribute('stroke-width','3');                   // Dreiecke größer machen
-  line.setAttribute('stroke-opacity','1');                // Linien dicker machen
-  line.setAttribute('stroke-linecap','round');                // Linienenden abrunden
-  line.setAttribute('stroke-linejoin','round');               // Linienverbindungen abrunden
+  line.setAttribute('stroke',        connColor);
+  line.setAttribute('stroke-width',  '2');
+  line.setAttribute('stroke-opacity','1');
+  line.setAttribute('stroke-linecap',  'round');
+  line.setAttribute('stroke-linejoin', 'round');
+  line.setAttribute('fill',         'none');
+  line.setAttribute('marker-end',   `url(#arrow-${fromBd.color || 'blue'})`);
   line.style.pointerEvents = 'stroke';
-  const hitbox = document.createElementNS('http://www.w3.org/2000/svg','path');
-  hitbox.setAttribute('stroke','transparent');
-  hitbox.setAttribute('stroke-width','12');
-  hitbox.setAttribute('fill','none');
-  hitbox.style.cursor = 'pointer';
-  line.setAttribute('fill','none');
-  line.setAttribute(
-    'marker-end',
-    `url(#arrow-${fromBd.color || 'blue'})`
-  );
-  line.style.cursor='pointer';
+  line.style.cursor        = 'pointer';
 
-  const conn = {id:'c'+(++idCounter), from:fromBd, fromPort, to:toBd, toPort, label, el:line};
+  const conn = { id: 'c' + (++idCounter), from: fromBd, fromPort, to: toBd, toPort, label, el: line };
   connections.push(conn);
 
   line.addEventListener('click', e => {
     e.stopPropagation();
-
-    if (!deleteLineMode) return;
-
+    if(!deleteLineMode) return;
     svgLayer.removeChild(line);
     connections = connections.filter(c => c !== conn);
-
     updateStatus();
   });
 
-
-  line.addEventListener('mouseenter', () => {
-    line.setAttribute('stroke-width','3');
-  });
-
+  line.addEventListener('mouseenter', () => line.setAttribute('stroke-width', '3'));
   line.addEventListener('mouseleave', () => {
-    if(selectedConn?.el !== line) {
-      line.setAttribute('stroke-width','2');
-    }
+    if(selectedConn?.el !== line) line.setAttribute('stroke-width', '2');
   });
 
   svgLayer.appendChild(line);
@@ -1170,13 +1114,18 @@ function addConnection(fromBd, fromPort, toBd, toPort, label='') {
 function redrawConnections() {
   connections.forEach(c => {
     const p1 = getPortPos(c.from.el, c.fromPort);
-    const p2 = getPortPos(c.to.el, c.toPort);
-    const dx = (p2.x-p1.x)*0.5, dy = (p2.y-p1.y)*0.5;
-    let cp1x=p1.x, cp1y=p1.y, cp2x=p2.x, cp2y=p2.y;
-    if(c.fromPort==='bottom'||c.fromPort==='top') { cp1y=p1.y+dy; cp2y=p2.y-dy; }
-    else { cp1x=p1.x+dx; cp2x=p2.x-dx; }
-    const d = `M${p1.x},${p1.y} C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
-    c.el.setAttribute('d', d);
+    const p2 = getPortPos(c.to.el,   c.toPort);
+    const dx = (p2.x - p1.x) * 0.5;
+    const dy = (p2.y - p1.y) * 0.5;
+    let cp1x = p1.x, cp1y = p1.y, cp2x = p2.x, cp2y = p2.y;
+    if(c.fromPort === 'bottom' || c.fromPort === 'top') {
+      cp1y = p1.y + dy;
+      cp2y = p2.y - dy;
+    } else {
+      cp1x = p1.x + dx;
+      cp2x = p2.x - dx;
+    }
+    c.el.setAttribute('d', `M${p1.x},${p1.y} C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`);
   });
 }
 
@@ -1188,39 +1137,34 @@ document.querySelectorAll('.block-template').forEach(tmpl => {
   });
 });
 
-document.getElementById('canvas-wrap').addEventListener('dragover', e => e.preventDefault());
-document.getElementById('canvas-wrap').addEventListener('drop', e => {
+canvasWrap.addEventListener('dragover', e => e.preventDefault());
+canvasWrap.addEventListener('drop', e => {
   e.preventDefault();
-  const wrap = document.getElementById('canvas-wrap').getBoundingClientRect();
-  const x = e.clientX - wrap.left - 65;
-  const y = e.clientY - wrap.top  - 28;
+  const wrap  = canvasWrap.getBoundingClientRect();
+  const x     = e.clientX - wrap.left - 65;
+  const y     = e.clientY - wrap.top  - 28;
   const shape = e.dataTransfer.getData('shape') || 'rect';
   const label = e.dataTransfer.getData('label') || 'Block';
-  const bd = createBlock(Math.max(0,x), Math.max(0,y), label, shape);
+  const bd    = createBlock(Math.max(0, x), Math.max(0, y), label, shape);
   selectBlock(bd);
 });
 
 // ─── TOOLBAR BUTTONS ─────────────────────────────────────────────────────────
-document.getElementById('btn-connect-mode').addEventListener('click', () => {
+btnConnect.addEventListener('click', () => {
   connectMode = !connectMode;
   connectFrom = null;
-  tempLine.style.display='none';
-  const btn = document.getElementById('btn-connect-mode');
-  btn.style.borderColor = connectMode ? '#4ecdc4' : '';
-  btn.style.color = connectMode ? '#4ecdc4' : '';
+  tempLine.style.display       = 'none';
+  btnConnect.style.borderColor = connectMode ? '#4ecdc4' : '';
+  btnConnect.style.color       = connectMode ? '#4ecdc4' : '';
   updateStatus();
 });
 
-document.getElementById('btn-clear-sel').addEventListener('click', deselectAll);
+btnClearSel.addEventListener('click', deselectAll);
 
-document.getElementById('btn-del-conn').addEventListener('click', () => {
+btnDelConn.addEventListener('click', () => {
   deleteLineMode = !deleteLineMode;
-
-  const btn = document.getElementById('btn-del-conn');
-
-  btn.style.borderColor = deleteLineMode ? '#ff6b6b' : '';
-  btn.style.color = deleteLineMode ? '#ff6b6b' : '';
-
+  btnDelConn.style.borderColor = deleteLineMode ? '#ff6b6b' : '';
+  btnDelConn.style.color       = deleteLineMode ? '#ff6b6b' : '';
   updateStatus();
 });
 
@@ -1232,35 +1176,35 @@ document.getElementById('btn-clear-all').addEventListener('click', () => {
   if(!confirm('Alles löschen?')) return;
   blocks.forEach(b => canvas.removeChild(b.el));
   connections.forEach(c => svgLayer.removeChild(c.el));
-  blocks=[]; connections=[];
+  blocks = []; connections = [];
   deselectAll(); updateStatus();
 });
 
 // ─── PROPERTY PANEL ───────────────────────────────────────────────────────────
-document.getElementById('prop-label').addEventListener('input', e => {
+propLabel.addEventListener('input', e => {
   if(!selectedBlock) return;
   selectedBlock.label = e.target.value;
   selectedBlock.el.querySelector('.label-input').innerText = e.target.value;
 });
 
-document.getElementById('prop-w').addEventListener('input', e => {
+propW.addEventListener('input', e => {
   if(!selectedBlock) return;
-  selectedBlock.el.style.width = e.target.value+'px';
+  selectedBlock.el.style.width = e.target.value + 'px';
   redrawConnections();
 });
 
-document.getElementById('prop-h').addEventListener('input', e => {
+propH.addEventListener('input', e => {
   if(!selectedBlock) return;
-  selectedBlock.el.style.height = e.target.value+'px';
+  selectedBlock.el.style.height = e.target.value + 'px';
   redrawConnections();
 });
 
-document.getElementById('prop-shape').addEventListener('change', e => {
+propShape.addEventListener('change', e => {
   if(!selectedBlock) return;
   selectedBlock.shape = e.target.value;
   selectedBlock.el.className = 'block selected'
-    + (e.target.value==='diamond'?' diamond-block':e.target.value==='circle'?' circle-block':'')
-    + (selectedBlock.color?' color-'+selectedBlock.color:'');
+    + getShapeClass(e.target.value)
+    + (selectedBlock.color ? ' color-' + selectedBlock.color : '');
   redrawConnections();
 });
 
@@ -1268,179 +1212,155 @@ document.querySelectorAll('.swatch').forEach(sw => {
   sw.addEventListener('click', () => {
     if(!selectedBlock) return;
     selectedBlock.color = sw.dataset.color;
-    // rebuild classes
-    const shape = selectedBlock.shape;
     selectedBlock.el.className = 'block selected'
-      + (shape==='diamond'?' diamond-block':shape==='circle'?' circle-block':'')
-      + (sw.dataset.color?' color-'+sw.dataset.color:'');
-    document.querySelectorAll('.swatch').forEach(s=>s.classList.remove('active'));
+      + getShapeClass(selectedBlock.shape)
+      + (sw.dataset.color ? ' color-' + sw.dataset.color : '');
+    document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
     sw.classList.add('active');
   });
 });
 
 // ─── KEYBOARD ─────────────────────────────────────────────────────────────────
 document.addEventListener('keydown', e => {
-  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT') return;
-  if((e.key==='Delete'||e.key==='Backspace')) {
+  if(e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if(e.key === 'Delete' || e.key === 'Backspace') {
     if(selectedBlock) deleteBlock(selectedBlock.id);
     else if(selectedConn) {
       svgLayer.removeChild(selectedConn.el);
-      connections=connections.filter(c=>c!==selectedConn);
-      selectedConn=null; updateStatus();
+      connections = connections.filter(c => c !== selectedConn);
+      selectedConn = null; updateStatus();
     }
   }
-  if(e.key==='Escape') { deselectAll(); connectMode=false; connectFrom=null; tempLine.style.display='none'; updateStatus(); }
+  if(e.key === 'Escape') {
+    deselectAll();
+    connectMode = false;
+    connectFrom = null;
+    tempLine.style.display = 'none';
+    updateStatus();
+  }
 });
 
 // ─── PDF EXPORT ───────────────────────────────────────────────────────────────
+function prepareForExport(wrap) {
+  const origBg = wrap.style.background;
+  wrap.style.background = '#ffffff';
+
+  document.querySelectorAll('.block').forEach(b => {
+    b._origBg     = b.style.background;
+    b._origBorder = b.style.borderColor;
+    b._origColor  = b.style.color;
+    b.style.color = '#111133';
+
+    const label = b.querySelector('.label-input');
+    if(label) {
+      label._origColor  = label.style.color;
+      label.style.color = '#111133';
+    }
+
+    const colorName = Object.keys(COLORS).find(name => b.classList.contains('color-' + name));
+    if(colorName) {
+      b.style.background  = COLORS[colorName].exportBg;
+      b.style.borderColor = COLORS[colorName].hex;
+    } else {
+      b.style.background  = '#f0f4ff';
+      b.style.borderColor = '#3355aa';
+    }
+  });
+
+  return origBg;
+}
+
+function restoreAfterExport(wrap, origBg) {
+  wrap.style.background = origBg;
+  document.querySelectorAll('.block').forEach(b => {
+    b.style.background  = b._origBg     || '';
+    b.style.borderColor = b._origBorder || '';
+    b.style.color       = b._origColor  || '';
+    const label = b.querySelector('.label-input');
+    if(label) label.style.color = label._origColor || '';
+  });
+}
+
 document.getElementById('btn-export').addEventListener('click', () => {
-  document.getElementById('export-modal').classList.add('open');
+  exportModal.classList.add('open');
 });
 document.getElementById('btn-cancel-export').addEventListener('click', () => {
-  document.getElementById('export-modal').classList.remove('open');
+  exportModal.classList.remove('open');
 });
 
 document.getElementById('btn-do-export').addEventListener('click', async () => {
   const fmt    = document.getElementById('pdf-format').value;
   const orient = document.getElementById('pdf-orient').value;
   const title  = document.getElementById('pdf-title').value || 'Blockschaltplan';
-  document.getElementById('export-modal').classList.remove('open');
+  exportModal.classList.remove('open');
   deselectAll();
 
-  // Build a clean white export clone
-  const wrap = document.getElementById('canvas-wrap');
-  const origBg = wrap.style.background;
-  wrap.style.background = '#ffffff';
-
-  // Temporarily set light mode for export
-  document.querySelectorAll('.block').forEach(b => {
-
-    b._origBg = b.style.background;
-    b._origBorder = b.style.borderColor;
-    b._origColor = b.style.color;
-
-    const label = b.querySelector('.label-input');
-      // ─── Label Colors ────────────────────────────────────────────────────────────────────
-    if(label){
-      label._origColor = label.style.color;
-      label.style.color = '#111133';
-    }
-
-    if (b.classList.contains('color-blue')) {
-      b.style.background = '#dbe7ff';
-      b.style.borderColor = '#5b8aff';
-    }
-
-    else if (b.classList.contains('color-red')) {
-      b.style.background = '#ffe0e0';
-      b.style.borderColor = '#ff6b6b';
-    }
-
-    else if (b.classList.contains('color-green')) {
-      b.style.background = '#dcfff8';
-      b.style.borderColor = '#4ecdc4';
-    }
-
-    else if (b.classList.contains('color-yellow')) {
-      b.style.background = '#fff5d6';
-      b.style.borderColor = '#ffd166';
-    }
-
-    else if (b.classList.contains('color-purple')) {
-      b.style.background = '#f1ddff';
-      b.style.borderColor = '#c77dff';
-    }
-
-    else {
-      b.style.background = '#f0f4ff';
-      b.style.borderColor = '#3355aa';
-    }
-
-    b.style.color = '#111133';
-  });
-
-  await new Promise(r=>setTimeout(r,50));
+  const origBg = prepareForExport(canvasWrap);
+  await new Promise(r => setTimeout(r, 50));
 
   const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ orientation: orient, unit:'mm', format: fmt });
+  const pdf  = new jsPDF({ orientation: orient, unit: 'mm', format: fmt });
   const pdfW = pdf.internal.pageSize.getWidth();
   const pdfH = pdf.internal.pageSize.getHeight();
 
-  // Title
-  pdf.setFont('helvetica','bold');
+  pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(16);
-  pdf.setTextColor(30,50,120);
-  pdf.text(title, pdfW/2, 14, {align:'center'});
+  pdf.setTextColor(30, 50, 120);
+  pdf.text(title, pdfW / 2, 14, { align: 'center' });
 
-  // Canvas capture
-  const canvasEl = await html2canvas(wrap, {
-    backgroundColor:'#ffffff',
+  const renderedCanvas = await html2canvas(canvasWrap, {
+    backgroundColor: '#ffffff',
     scale: 2,
     useCORS: true,
-    logging: false
+    logging: false,
   });
 
-  const imgData = canvasEl.toDataURL('image/png');
-  const imgW = pdfW - 20;
-  const imgH = (canvasEl.height / canvasEl.width) * imgW;
-  const maxH = pdfH - 24;
-  const finalH = Math.min(imgH, maxH);
-  const finalW = imgH > maxH ? (canvasEl.width/canvasEl.height)*maxH : imgW;
+  const imgData = renderedCanvas.toDataURL('image/png');
+  const imgW    = pdfW - 20;
+  const imgH    = (renderedCanvas.height / renderedCanvas.width) * imgW;
+  const maxH    = pdfH - 24;
+  const finalH  = Math.min(imgH, maxH);
+  const finalW  = imgH > maxH ? (renderedCanvas.width / renderedCanvas.height) * maxH : imgW;
 
-  pdf.addImage(imgData,'PNG', (pdfW-finalW)/2, 20, finalW, finalH);
+  pdf.addImage(imgData, 'PNG', (pdfW - finalW) / 2, 20, finalW, finalH);
 
-  // Footer
   pdf.setFontSize(8);
-  pdf.setTextColor(120,120,140);
-  pdf.text(`BlockPlan Editor — ${new Date().toLocaleDateString('de-DE')}`, pdfW/2, pdfH-6, {align:'center'});
+  pdf.setTextColor(120, 120, 140);
+  pdf.text(`BlockPlan Editor — ${new Date().toLocaleDateString('de-DE')}`, pdfW / 2, pdfH - 6, { align: 'center' });
 
-  pdf.save(title.replace(/\s+/g,'_')+'.pdf');
+  pdf.save(title.replace(/\s+/g, '_') + '.pdf');
 
-  // Restore
-  wrap.style.background = origBg;
-  document.querySelectorAll('.block').forEach(b => {
-
-    b.style.background  = b._origBg || '';
-    b.style.borderColor = b._origBorder || '';
-    b.style.color       = b._origColor || '';
-
-    const label = b.querySelector('.label-input');
-
-    if(label){
-      label.style.color = label._origColor || '';
-    }
-  });
+  restoreAfterExport(canvasWrap, origBg);
 });
 
-// ─── LOAD EXAMPLE (your diagram) ─────────────────────────────────────────────
+// ─── LOAD EXAMPLE ─────────────────────────────────────────────────────────────
 function loadExample() {
   const cx = 160, gap = 90;
   let y = 30;
-  const psu   = createBlock(cx, y,      '24V\nNetzteil',        'rect'); y+=gap;
-  const fuse  = createBlock(cx, y,      '10A\nSicherung',       'rect'); y+=gap;
-  const main  = createBlock(cx, y,      'Haupt-\nschalter',     'rect'); y+=gap;
-  const v12   = createBlock(cx, y,      '12V\nVerteilerblock',  'rect');
-  const mod12 = createBlock(cx+170, y,  '12V\nModule',          'rect'); y+=gap;
-  const sd    = createBlock(cx, y,      'Step-Down\n12V→5V',    'rect'); y+=gap;
-  const v5    = createBlock(cx, y,      '5V\nVerteilerblock',   'rect');
-  const esp   = createBlock(cx+170, y-75,'ESP',                 'rect');
-  const led   = createBlock(cx+170, y,  'LED',                  'rect');
-  const tsc   = createBlock(cx+170, y+75,'Touch-\nScreen',      'rect');
+  const psu   = createBlock(cx,       y,        '24V\nNetzteil',       'rect'); y += gap;
+  const fuse  = createBlock(cx,       y,        '10A\nSicherung',      'rect'); y += gap;
+  const main  = createBlock(cx,       y,        'Haupt-\nschalter',    'rect'); y += gap;
+  const v12   = createBlock(cx,       y,        '12V\nVerteilerblock', 'rect');
+  const mod12 = createBlock(cx + 170, y,        '12V\nModule',         'rect'); y += gap;
+  const sd    = createBlock(cx,       y,        'Step-Down\n12V→5V',   'rect'); y += gap;
+  const v5    = createBlock(cx,       y,        '5V\nVerteilerblock',  'rect');
+  const esp   = createBlock(cx + 170, y - 75,   'ESP',                 'rect');
+  const led   = createBlock(cx + 170, y,        'LED',                 'rect');
+  const tsc   = createBlock(cx + 170, y + 75,   'Touch-\nScreen',      'rect');
 
-  // colors
-  [psu,fuse,main].forEach(b=>{ b.color='blue'; b.el.classList.add('color-blue'); });
-  [v12,mod12].forEach(b=>{     b.color='yellow'; b.el.classList.add('color-yellow'); });
-  [sd,v5,esp,led,tsc].forEach(b=>{ b.color='green'; b.el.classList.add('color-green'); });
+  [psu, fuse, main].forEach(b => { b.color = 'blue';   b.el.classList.add('color-blue');   });
+  [v12, mod12].forEach(b      => { b.color = 'yellow'; b.el.classList.add('color-yellow'); });
+  [sd, v5, esp, led, tsc].forEach(b => { b.color = 'green'; b.el.classList.add('color-green'); });
 
-  addConnection(psu,'bottom', fuse,'top');
-  addConnection(fuse,'bottom', main,'top');
-  addConnection(main,'bottom', v12,'top');
-  addConnection(v12,'right',   mod12,'left');
-  addConnection(v12,'bottom',  sd,'top');
-  addConnection(sd,'bottom',   v5,'top');
-  addConnection(v5,'right',    esp,'left');
-  addConnection(v5,'right',    led,'left');
-  addConnection(v5,'right',    tsc,'left');
+  addConnection(psu,  'bottom', fuse,  'top');
+  addConnection(fuse, 'bottom', main,  'top');
+  addConnection(main, 'bottom', v12,   'top');
+  addConnection(v12,  'right',  mod12, 'left');
+  addConnection(v12,  'bottom', sd,    'top');
+  addConnection(sd,   'bottom', v5,    'top');
+  addConnection(v5,   'right',  esp,   'left');
+  addConnection(v5,   'right',  led,   'left');
+  addConnection(v5,   'right',  tsc,   'left');
 }
 
 loadExample();
