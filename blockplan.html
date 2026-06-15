@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blockschaltplan Editor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;800&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #222533;
+    --border: #2e3147;
+    --accent: #5b8aff;
+    --accent2: #ff6b6b;
+    --accent3: #4ecdc4;
+    --text: #e8eaf6;
+    --text-muted: #6b7099;
+    --block-bg: #1e2235;
+    --block-border: #3d4270;
+    --shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+
+  body {
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* TOPBAR */
+  #topbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    z-index: 100;
+  }
+
+  #topbar h1 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 18px;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+    margin-right: 8px;
+  }
+
+  .sep { width: 1px; height: 28px; background: var(--border); }
+
+  .btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 14px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(91,138,255,0.08); }
+  .btn.danger:hover { border-color: var(--accent2); color: var(--accent2); background: rgba(255,107,107,0.08); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn.primary:hover { background: #7aa3ff; border-color: #7aa3ff; color: #fff; }
+
+  .icon { font-size: 14px; }
+
+  select, input[type="text"], input[type="number"] {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    outline: none;
+    cursor: pointer;
+  }
+  select:focus, input:focus { border-color: var(--accent); }
+
+  /* MAIN LAYOUT */
+  #main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* SIDEBAR */
+  #sidebar {
+    width: 200px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow-y: auto;
+  }
+
+  #sidebar h3 {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    padding: 14px 16px 8px;
+  }
+
+  .block-template {
+    margin: 4px 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--block-border);
+    background: var(--block-bg);
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: grab;
+    transition: all 0.15s;
+    text-align: center;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .block-template:hover { border-color: var(--accent); color: var(--accent); transform: translateX(2px); }
+  .block-template:active { cursor: grabbing; }
+
+  .block-template.diamond { border-radius: 0; transform: none; clip-path: none; }
+  .shape-icon { font-size: 16px; }
+
+  /* CANVAS AREA */
+  #canvas-wrap {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background:
+      linear-gradient(rgba(91,138,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(91,138,255,0.03) 1px, transparent 1px);
+    background-size: 30px 30px;
+    cursor: default;
+  }
+
+  #canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+
+  /* SVG lines */
+  #svg-layer {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* BLOCKS */
+  .block {
+    position: absolute;
+    min-width: 160px;
+    min-height: 50px;
+    background: var(--block-bg);
+    border: 2px solid var(--block-border);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text);
+    cursor: move;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    z-index: 10;
+    padding: 8px 12px;
+    word-break: break-word;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .block:hover { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(91,138,255,0.2), 0 2px 12px rgba(0,0,0,0.3); }
+  .block.selected { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(91,138,255,0.3); }
+  .block.diamond-block {
+    border-radius: 0;
+    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+    min-width: 120px; min-height: 80px;
+  }
+  .block.circle-block { border-radius: 50%; min-width: 90px; min-height: 90px; }
+
+  .block.note-block {
+    background: rgba(255,255,180,0.08);
+    border: 1px dashed #ffd166;
+    min-width: 180px;
+    min-height: 100px;
+
+    align-items: flex-start;
+    justify-content: flex-start;
+
+    padding: 12px;
+  }
+
+  /* color variants */
+  .block.color-blue   { border-color: #5b8aff; background: rgba(91,138,255,0.1); }
+  .block.color-red    { border-color: #ff6b6b; background: rgba(255,107,107,0.1); }
+  .block.color-green  { border-color: #4ecdc4; background: rgba(78,205,196,0.1); }
+  .block.color-yellow { border-color: #ffd166; background: rgba(255,209,102,0.1); }
+  .block.color-purple { border-color: #c77dff; background: rgba(199,125,255,0.1); }
+  .block.color-orange { border-color: #ff9f43; background: rgba(255,159,67,0.1); }
+  .block.color-pink   { border-color: #ff4fa3; background: rgba(255,79,163,0.1); }
+  .block.color-turquoise { border-color: #2ed3c6; background: rgba(46,211,198,0.1);  }
+
+  /* connection ports */
+  .block .port {
+    position: absolute;
+    width: 10px; height: 10px;
+    background: var(--accent);
+    border-radius: 50%;
+    border: 2px solid var(--bg);
+    opacity: 0;
+    transition: opacity 0.15s;
+    cursor: crosshair;
+    z-index: 20;
+  }
+  .block:hover .port, .block.selected .port { opacity: 1; }
+  .port.top    { top: -6px;    left: 50%; transform: translateX(-50%); }
+  .port.bottom { bottom: -6px; left: 50%; transform: translateX(-50%); }
+  .port.left   { left: -6px;   top: 50%;  transform: translateY(-50%); }
+  .port.right  { right: -6px;  top: 50%;  transform: translateY(-50%); }
+
+  .block .del-btn {
+    position: absolute;
+    top: -8px; right: -8px;
+    width: 18px; height: 18px;
+    background: var(--accent2);
+    border: none; border-radius: 50%;
+    color: #fff; font-size: 11px;
+    cursor: pointer; display: none;
+    align-items: center; justify-content: center;
+    z-index: 30; line-height: 1;
+  }
+  .block.selected .del-btn { display: flex; }
+
+  .block .label-input {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    text-align: center;
+    width: 100%;
+    outline: none;
+    cursor: text;
+    pointer-events: none;
+
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.3;
+
+    display: block;
+    align-items: center;
+
+    min-height: 20px;
+
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+  }
+  .block.selected .label-input {
+  pointer-events: auto;
+  cursor: text;
+  }
+
+  /* PROPERTIES PANEL */
+  #props {
+    width: 200px;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    padding: 16px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+  }
+  #props h3 {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+  .prop-group { display: flex; flex-direction: column; gap: 6px; }
+  .prop-label { font-size: 11px; color: var(--text-muted); }
+  .prop-group input, .prop-group select { width: 100%; }
+  .color-swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+  .swatch {
+    width: 24px; height: 24px; border-radius: 4px;
+    border: 2px solid transparent; cursor: pointer;
+    transition: transform 0.1s;
+  }
+  .swatch:hover { transform: scale(1.15); }
+  .swatch.active { border-color: #fff; }
+
+  #no-selection { color: var(--text-muted); font-size: 12px; }
+
+  /* connection line in progress */
+  #temp-line { pointer-events: none; }
+
+  /* STATUS BAR */
+  #statusbar {
+    padding: 5px 20px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex; gap: 20px;
+    flex-shrink: 0;
+  }
+
+  /* MODAL */
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    width: 360px;
+    box-shadow: var(--shadow);
+  }
+  .modal h2 { font-family: 'Syne', sans-serif; font-size: 18px; margin-bottom: 18px; }
+  .modal .form-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .modal label { font-size: 12px; color: var(--text-muted); }
+  .modal select, .modal input { width: 100%; }
+  .modal-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+  /* Multi Selection Box */
+  .selection-box {
+    position: absolute;
+    border: 1px dashed #5b8aff;
+    background: rgba(91,138,255,0.12);
+    pointer-events: none;
+    z-index: 999;
+  }
+
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <h1>⬡ BlockPlan</h1>
+  <div class="sep"></div>
+
+  <button class="btn" id="btn-connect-mode" title="Verbindungsmodus">
+    <span class="icon">🔗</span> Verbinden
+  </button>
+  <button class="btn danger" id="btn-clear-sel" title="Auswahl aufheben">
+    <span class="icon">✕</span> Auswahl
+  </button>
+  <button class="btn danger" id="btn-del-conn" title="Verbindung löschen">
+    <span class="icon">✂</span> Linie löschen
+  </button>
+
+  <div class="sep"></div>
+
+  <button class="btn" id="btn-clear-all">
+    <span class="icon">🗑</span> Alles löschen
+  </button>
+
+  <div class="sep"></div>
+
+  <button class="btn primary" id="btn-export">
+    <span class="icon">📄</span> Als PDF speichern
+  </button>
+</div>
+
+<!-- MODAL: PDF Export -->
+<div class="modal-overlay" id="export-modal">
+  <div class="modal">
+    <h2>📄 PDF Exportieren</h2>
+    <div class="form-row">
+      <label>Format</label>
+      <select id="pdf-format">
+        <option value="a4">A4</option>
+        <option value="a3">A3</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>Ausrichtung</label>
+      <select id="pdf-orient">
+        <option value="portrait">Hochformat (Portrait)</option>
+        <option value="landscape">Querformat (Landscape)</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>Titel</label>
+      <input type="text" id="pdf-title" value="Blockschaltplan" />
+    </div>
+    <div class="modal-btns">
+      <button class="btn" id="btn-cancel-export">Abbrechen</button>
+      <button class="btn primary" id="btn-do-export">Exportieren</button>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+
+  <!-- SIDEBAR: Block palette -->
+  <div id="sidebar">
+    <h3>Blöcke</h3>
+
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Block">
+      <span class="shape-icon">▭</span> Rechteck
+    </div>
+    <div class="block-template" draggable="true" data-shape="diamond" data-label="Entscheidung">
+      <span class="shape-icon">◇</span> Raute
+    </div>
+    <div class="block-template" draggable="true" data-shape="circle" data-label="Start/Ende">
+      <span class="shape-icon">◯</span> Kreis
+    </div>
+    <div class="block-template" draggable="true"
+      data-shape="note"
+      data-label="Notiz">
+    📝 Notiz
+    </div>
+
+
+    <h3 style="margin-top:10px">Vorlagen</h3>
+
+    <!-- ── Stromversorgung ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">⚡ Stromversorgung</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="24V Netzteil">⚡ 24V Netzteil</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="12V Netzteil">⚡ 12V Netzteil</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="5V Netzteil">⚡ 5V Netzteil</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="3.3V Netzteil">⚡ 3.3V Netzteil</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="LiPo Akku">🔋 LiPo Akku</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Li-Ion Akku">🔋 Li-Ion Akku</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="18650 Zelle">🔋 18650 Zelle</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="USB-C PD">🔌 USB-C PD</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Akku">🔋 Akku</div>
+
+    <!-- ── Schutz & Sicherung ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">🛡 Schutz & Sicherung</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Sicherung">🔌 Sicherung</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="10A Sicherung">🔌 Sicherung 10A</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="5A Sicherung">🔌 Sicherung 5A</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Überspannungsschutz">🛡 Überspannungsschutz</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Verpolschutz">🛡 Verpolschutz</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="ESD Schutz">🛡 ESD Schutz</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Hauptschalter">🔁 Hauptschalter</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Schalter">🔁 Schalter</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Taster">⏺ Taster</div>
+
+    <!-- ── Wandler & Verteiler ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">🔁 Wandler & Verteiler</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Step-Down">⬇ Step-Down</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Step-Down 24V→12V">⬇ 24V→12V</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Step-Down 12V→5V">⬇ 12V→5V</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Step-Down 12V→3.3V">⬇ 12V→3.3V</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Step-Down 5V→3.3V">⬇ 5V→3.3V</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Step-Up Boost">⬆ Step-Up Boost</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Buck-Boost Wandler">⇅ Buck-Boost</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="LDO Regler">〓 LDO Regler</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Verteilerblock">⊞ Verteiler</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="BMS / Laderegler">⚡ BMS / Laderegler</div>
+
+    <!-- ── Arduino ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">🔵 Arduino Familie</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Arduino">🤖 Arduino</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Arduino Uno">🔵 Arduino Uno</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Arduino Nano">🔵 Arduino Nano</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Arduino Mega 2560">🔵 Arduino Mega</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Arduino Mini">🔵 Arduino Mini</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Arduino Leonardo">🔵 Arduino Leonardo</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Arduino Due">🔵 Arduino Due</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Arduino MKR WiFi">🔵 Arduino MKR WiFi</div>
+
+    <!-- ── ESP ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">📡 ESP / WiFi MCU</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="ESP">📡 ESP</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="ESP32">📡 ESP32</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="ESP32-S3">📡 ESP32-S3</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="ESP32-C3">📡 ESP32-C3</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="ESP8266 (NodeMCU)">📡 ESP8266</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Wemos D1 Mini">📡 Wemos D1 Mini</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="ESP32-CAM">📷 ESP32-CAM</div>
+
+    <!-- ── Raspberry Pi ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">🟥 Raspberry Pi Familie</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Raspberry Pi 5">🟥 RPi 5</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Raspberry Pi 4B">🟥 RPi 4B</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Raspberry Pi 3B+">🟥 RPi 3B+</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Raspberry Pi Zero 2W">🟥 RPi Zero 2W</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Raspberry Pi Zero W">🟥 RPi Zero W</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Raspberry Pi Pico W">🟥 RPi Pico W</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Raspberry Pi Pico">🟥 RPi Pico</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="RPi GPIO Header">⊞ GPIO Header</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="RPi HAT">🎩 RPi HAT</div>
+
+    <!-- ── Weitere MCU ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">⬛ Weitere MCU / SBC</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="STM32 Nucleo">⬛ STM32 Nucleo</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="STM32 Blue Pill">⬛ STM32 Blue Pill</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="ATmega328P">⬛ ATmega328P</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="ATtiny85">⬛ ATtiny85</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="RP2040">⬛ RP2040</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="nRF52840">⬛ nRF52840</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Teensy 4.1">⬛ Teensy 4.1</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Jetson Nano">🟢 Jetson Nano</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Orange Pi Zero">🟠 Orange Pi Zero</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="BeagleBone Black">⬛ BeagleBone</div>
+
+    <!-- ── Halbleiter ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">🔘 Halbleiter & Schalten</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="MOSFET">⚡ MOSFET</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="MOSFET N-Kanal">⊳ MOSFET N</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="MOSFET P-Kanal">⊲ MOSFET P</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="NPN Transistor">⊳ Transistor NPN</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="PNP Transistor">⊲ Transistor PNP</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Relais">🔀 Relais</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Relais 5V">🔀 Relais 5V</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Relais 12V">🔀 Relais 12V</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Optokoppler">⤳ Optokoppler</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="H-Brücke">⇔ H-Brücke</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Gate Driver">▷ Gate Driver</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="PWM Controller">〰 PWM Controller</div>
+
+    <!-- ── Anzeige ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">💡 Anzeige & Ausgabe</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="LED">💡 LED</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="LED Strip (WS2812)">💡 LED Strip WS2812</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="LED Matrix">💡 LED Matrix</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="RGB LED">🌈 RGB LED</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="OLED 128x64">🖥 OLED 128x64</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="LCD 16x2">🖥 LCD 16x2</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="TFT Display">🖥 TFT Display</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="E-Paper Display">🖥 E-Paper</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Touchscreen">🖥 Touchscreen</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="7-Segment Anzeige">🔢 7-Segment</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Buzzer (Aktiv)">🔊 Buzzer aktiv</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Lautsprecher">🔊 Lautsprecher</div>
+
+    <!-- ── Motoren ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">⚙ Aktoren & Motoren</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Motor">⚙ Motor</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Servo Motor">⚙ Servo Motor</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="DC Motor">⚙ DC Motor</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Stepper Motor">⚙ Stepper Motor</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Brushless Motor">⚙ Brushless Motor</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="ESC">⚙ ESC</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Motordriver L298N">⚙ L298N Treiber</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Solenoid Ventil">🔧 Solenoid</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Pumpe">🔧 Pumpe</div>
+
+    <!-- ── Sensoren ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">📟 Sensoren</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Sensor">📟 Sensor</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Temperatursensor (DS18B20)">🌡 DS18B20</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Temp+Feuchte (DHT22)">🌡 DHT22</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Temp+Feuchte (BME280)">🌡 BME280</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="PIR Bewegungssensor">👁 PIR Sensor</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Ultraschall (HC-SR04)">📻 HC-SR04</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="IR Sensor">📻 IR Sensor</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Lichtsensor (LDR)">☀ LDR</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Helligkeitssensor (BH1750)">☀ BH1750</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="IMU (MPU-6050)">🧭 MPU-6050</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Kompass (HMC5883L)">🧭 HMC5883L</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="GPS Modul">📍 GPS Modul</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Drucksensor">🔵 Drucksensor</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Gassensor (MQ-2)">💨 Gassensor MQ-2</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="CO2 Sensor">💨 CO2 Sensor</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Strommessung (INA219)">⚡ INA219</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Hall Sensor">🔵 Hall Sensor</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Kamera OV2640">📷 Kamera OV2640</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Mikrofon">🎙 Mikrofon</div>
+
+    <!-- ── Kommunikation ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">📶 Kommunikation</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="WiFi Modul">📶 WiFi</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Bluetooth">🛰 Bluetooth</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Bluetooth HC-05">🔵 Bluetooth HC-05</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="LoRa Modul">📡 LoRa</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="NRF24L01">📡 NRF24L01</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Zigbee Modul">📡 Zigbee</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="4G / LTE Modul">📶 4G / LTE</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Ethernet Modul">🌐 Ethernet</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="UART / Serial">↔ UART</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="I2C Bus">↔ I2C Bus</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="SPI Bus">↔ SPI Bus</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="RS485 Bus">↔ RS485</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="CAN Bus">↔ CAN Bus</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="USB Modul">🔌 USB</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="USB-to-Serial">🔌 USB-to-Serial</div>
+
+    <!-- ── Speicher ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">💾 Speicher</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="SD Karte">💾 SD Karte</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="EEPROM">💾 EEPROM</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Flash Speicher">💾 Flash</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="RAM Modul">💾 RAM</div>
+
+    <!-- ── Eingabe ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">🔢 Eingabe</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Potentiometer">🎚 Potentiometer</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Encoder">🔄 Encoder</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Joystick">🕹 Joystick</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Tastatur Matrix">⌨ Tastatur Matrix</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="RFID / NFC">📛 RFID / NFC</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Fingerabdruck">👆 Fingerabdruck</div>
+
+    <!-- ── Audio ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">🔊 Audio</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="DAC Modul">🎵 DAC</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="I2S Audio">🎵 I2S Audio</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Audioverstärker">🔊 Audioverstärker</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="MP3 Modul DFPlayer">🎵 DFPlayer MP3</div>
+
+    <!-- ── System / Software ── -->
+    <h3 style="margin-top:2px; font-size:9px; padding-top:4px;">🌐 System / Software</h3>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Linux OS">🐧 Linux OS</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="RTOS">⏱ RTOS</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Webserver">🌐 Webserver</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="MQTT Broker">📨 MQTT Broker</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Home Assistant">🏠 Home Assistant</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Node-RED">🔴 Node-RED</div>
+    <div class="block-template" draggable="true" data-shape="rect" data-label="Modul">📦 Modul</div>
+    <div class="block-template" draggable="true" data-shape="diamond" data-label="Bedingung">❓ Bedingung</div>
+    <div class="block-template" draggable="true" data-shape="circle" data-label="Start">▶ Start</div>
+    <div class="block-template" draggable="true" data-shape="circle" data-label="Ende">■ Ende</div>
+
+    <h3 style="margin-top:10px">Hilfe</h3>
+    <div style="padding:8px 12px;font-size:11px;color:var(--text-muted);line-height:1.6">
+      🖱 Blöcke ziehen<br>
+      🔗 Verbinden-Modus → Ports anklicken<br>
+      ✏ Block anklicken → bearbeiten<br>
+      ✂ Linie anklicken → löschen
+    </div>
+  </div>
+
+  <!-- CANVAS -->
+  <div id="canvas-wrap">
+    <svg id="svg-layer" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+
+        <marker id="arrow-blue" markerWidth="10" markerHeight="7"
+          refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#5b8aff"/>
+        </marker>
+
+        <marker id="arrow-red" markerWidth="10" markerHeight="7"
+          refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#ff6b6b"/>
+        </marker>
+
+        <marker id="arrow-green" markerWidth="10" markerHeight="7"
+          refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#4ecdc4"/>
+        </marker>
+
+        <marker id="arrow-yellow" markerWidth="10" markerHeight="7"
+          refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#ffd166"/>
+        </marker>
+
+        <marker id="arrow-purple" markerWidth="10" markerHeight="7"
+          refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#c77dff"/>
+        </marker>
+
+        <marker id="arrow-orange" markerWidth="10" markerHeight="7"
+          refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#ff9f43"/>
+        </marker>
+        
+        <marker id="arrow-pink" markerWidth="10" markerHeight="7"
+          refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#ff4fa3"/>
+        </marker>
+        
+        <marker id="arrow-turquoise" markerWidth="10" markerHeight="7"
+          refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#2ed3c6"/>
+        </marker>
+
+      </defs>
+      <line id="temp-line" stroke="#5b8aff" stroke-width="2"
+        stroke-dasharray="6,4" style="display:none"/>
+    </svg>
+    <div id="canvas"></div>
+  </div>
+
+  <!-- PROPERTIES PANEL -->
+  <div id="props">
+    <h3>Eigenschaften</h3>
+    <div id="no-selection">Kein Block ausgewählt</div>
+    <div id="prop-fields" style="display:none; flex-direction:column; gap:14px;">
+      <div class="prop-group">
+        <span class="prop-label">Beschriftung</span>
+        <input type="text" id="prop-label" placeholder="Blockname…" />
+      </div>
+      <div class="prop-group">
+        <span class="prop-label">Breite (px)</span>
+        <input type="number" id="prop-w" min="60" max="400" step="10" />
+      </div>
+      <div class="prop-group">
+        <span class="prop-label">Höhe (px)</span>
+        <input type="number" id="prop-h" min="40" max="300" step="10" />
+      </div>
+      <div class="prop-group">
+        <span class="prop-label">Farbe</span>
+        // ─── Color Swatches ─────────────────────────────────────────────────────────────
+        <div class="color-swatches">
+          <div class="swatch active" data-color="" style="background:#1e2235;border-color:#3d4270"></div>
+          <div class="swatch" data-color="blue"   style="background:rgba(91,138,255,0.3)"></div>
+          <div class="swatch" data-color="red"    style="background:rgba(255,107,107,0.3)"></div>
+          <div class="swatch" data-color="green"  style="background:rgba(78,205,196,0.3)"></div>
+          <div class="swatch" data-color="yellow" style="background:rgba(255,209,102,0.3)"></div>
+          <div class="swatch" data-color="purple" style="background:rgba(199,125,255,0.3)"></div>
+          <div class="swatch" data-color="orange" style="background: rgba(255,159,67,0.3)"></div>
+          <div class="swatch" data-color="pink" style="background: rgba(255,79,163,0.3)"></div>
+          <div class="swatch" data-color="turquoise" style="background: rgba(46,211,198,0.3)"></div>
+        </div>
+      </div>
+      <div class="prop-group">
+        <span class="prop-label">Form</span>
+        <select id="prop-shape">
+          <option value="rect">Rechteck</option>
+          <option value="diamond">Raute</option>
+          <option value="circle">Kreis</option>
+        </select>
+      </div>
+      <button class="btn danger" id="btn-del-block" style="margin-top:4px">
+        🗑 Block löschen
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<!-- STATUS BAR -->
+<div id="statusbar">
+  <span id="status-blocks">Blöcke: 0</span>
+  <span id="status-conns">Verbindungen: 0</span>
+  <span id="status-mode">Modus: Normal</span>
+</div>
+
+<script>
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let blocks = [];
+let connections = [];
+let selectedBlock = null;
+let selectionBox = null;
+let isSelecting = false;
+let selectedBlocks = [];
+let selectionStart = {x:0,y:0};
+let selectedConn = null;
+let connectMode = false;
+let connectFrom = null; // {block, port}
+let idCounter = 0;
+let dragOffset = {x:0,y:0};
+let deleteLineMode = false;
+
+const canvas = document.getElementById('canvas');
+const svgLayer = document.getElementById('svg-layer');
+const tempLine = document.getElementById('temp-line');
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+function uid() { return 'b' + (++idCounter); }
+
+function getConnectionColor(block) {
+// ─── Color Helpers ─────────────────────────────────────────────────────────────
+  if(block.color === 'blue')   return '#5b8aff';
+  if(block.color === 'red')    return '#ff6b6b';
+  if(block.color === 'green')  return '#4ecdc4';
+  if(block.color === 'yellow') return '#ffd166';
+  if(block.color === 'purple') return '#c77dff';
+  if(block.color === 'orange') return '#ff9f43';
+  if(block.color === 'pink')   return '#ff4fa3';
+  if(block.color === 'turquoise') return '#2ed3c6';
+
+  return '#5b8aff';
+}
+
+function getPortPos(blockEl, port) {
+  const bx = parseInt(blockEl.style.left);
+  const by = parseInt(blockEl.style.top);
+  const bw = blockEl.offsetWidth;
+  const bh = blockEl.offsetHeight;
+  const cx = bx + bw/2, cy = by + bh/2;
+  switch(port) {
+    case 'top':    return {x: cx, y: by};
+    case 'bottom': return {x: cx, y: by+bh};
+    case 'left':   return {x: bx, y: cy};
+    case 'right':  return {x: bx+bw, y: cy};
+  }
+}
+
+function updateStatus() {
+  document.getElementById('status-blocks').textContent = `Blöcke: ${blocks.length}`;
+  document.getElementById('status-conns').textContent = `Verbindungen: ${connections.length}`;
+  document.getElementById('status-mode').textContent = `Modus: ${connectMode ? '🔗 Verbinden' : 'Normal'}`;
+}
+
+// ─── BLOCK CREATION ───────────────────────────────────────────────────────────
+function createBlock(x, y, label, shape='rect') {
+  const id = uid();
+  const el = document.createElement('div');
+  el.className = 'block' + (shape==='diamond'?' diamond-block':shape==='circle'?' circle-block':shape==='note'?' note-block':'');
+  el.id = id;
+  el.style.left = x + 'px';
+  el.style.top  = y + 'px';
+  el.style.width  = shape==='diamond'?'130px':shape==='circle'?'90px':shape==='note'?'180px':'130px';
+  el.style.height = shape==='diamond'?'90px':shape==='circle'?'90px':shape==='note'?'100px':'56px';
+
+  // Ports
+  if(shape !== 'note') {
+
+    ['top','bottom','left','right'].forEach(p => {
+
+      const port = document.createElement('div');
+      port.className = 'port ' + p;
+      port.dataset.port = p;
+      port.addEventListener('mousedown', onPortMouseDown);
+
+      el.appendChild(port);
+    });
+  }
+
+  // Label
+  const ta = document.createElement('div');
+  ta.className = 'label-input';
+  ta.contentEditable = (shape === 'note');
+  ta.innerText = label;
+  ta.addEventListener('input', () => {
+
+    const bd = blocks.find(b=>b.id===id);
+
+    if(bd){
+      bd.label = ta.innerText;
+    }
+
+    redrawConnections();
+  });
+  ta.addEventListener('mousedown', e => { if(!selectedBlock||selectedBlock.id!==id) e.stopPropagation(); });
+  el.appendChild(ta);
+
+  // Delete btn
+  const del = document.createElement('button');
+  del.className = 'del-btn';
+  del.textContent = '×';
+  del.addEventListener('click', e => { e.stopPropagation(); deleteBlock(id); });
+  el.appendChild(del);
+
+  // Drag
+  el.addEventListener('mousedown', onBlockMouseDown);
+
+  canvas.appendChild(el);
+
+  const blockData = {id, el, label, shape, color:'', x, y};
+  blocks.push(blockData);
+  updateStatus();
+  return blockData;
+}
+
+function deleteBlock(id) {
+  const idx = blocks.findIndex(b=>b.id===id);
+  if(idx===-1) return;
+  canvas.removeChild(blocks[idx].el);
+  blocks.splice(idx,1);
+  connections = connections.filter(c=>c.from.id!==id && c.to.id!==id);
+  if(selectedBlock && selectedBlock.id===id) deselectAll();
+  redrawConnections();
+  updateStatus();
+}
+
+// ─── SELECTION ────────────────────────────────────────────────────────────────
+function selectBlock(bd) {
+  deselectAll();
+  selectedBlock = bd;
+  bd.el.classList.add('selected');
+  // update props panel
+  document.getElementById('no-selection').style.display='none';
+  document.getElementById('prop-fields').style.display='flex';
+  document.getElementById('prop-label').value = bd.label;
+  document.getElementById('prop-w').value = parseInt(bd.el.style.width)||130;
+  document.getElementById('prop-h').value = parseInt(bd.el.style.height)||56;
+  document.getElementById('prop-shape').value = bd.shape;
+  // swatches
+  document.querySelectorAll('.swatch').forEach(s => {
+    s.classList.toggle('active', s.dataset.color === bd.color);
+  });
+}
+
+function deselectAll() {
+  if(selectedBlock) { selectedBlock.el.classList.remove('selected'); selectedBlock=null; }
+  if(selectedConn) {
+    selectedConn.el.setAttribute('stroke','#5b8aff');
+    selectedConn.el.setAttribute('marker-end','url(#arrow)');
+    selectedConn=null;
+  }
+  document.getElementById('no-selection').style.display='';
+  document.getElementById('prop-fields').style.display='none';
+}
+
+function clearMultiSelection() {
+  selectedBlocks.forEach(b => b.el.classList.remove('selected'));
+  selectedBlocks = [];
+}
+
+function selectMultiple(blocksToSelect) {
+  clearMultiSelection();
+
+  selectedBlocks = blocksToSelect;
+
+  selectedBlocks.forEach(b => {
+    b.el.classList.add('selected');
+  });
+}
+
+
+// ─── BLOCK DRAG ───────────────────────────────────────────────────────────────
+let draggingBlock = null;
+
+function onBlockMouseDown(e) {
+  if(e.target.classList.contains('port') || e.target.classList.contains('del-btn')) return;
+  if(e.target.classList.contains('label-input') && selectedBlock && selectedBlock.el===e.currentTarget) return;
+
+  const bd = blocks.find(b=>b.el===e.currentTarget);
+  if(!bd) return;
+  if(selectedBlocks.length <= 1) {
+  selectBlock(bd);
+  }
+  if(connectMode) return;
+
+  draggingBlock = bd;
+  const rect = canvas.getBoundingClientRect();
+  const wrap = document.getElementById('canvas-wrap').getBoundingClientRect();
+  dragOffset.x = e.clientX - (wrap.left + parseInt(bd.el.style.left));
+  dragOffset.y = e.clientY - (wrap.top  + parseInt(bd.el.style.top));
+  e.preventDefault();
+}
+
+document.addEventListener('mousemove', e => {
+    if(isSelecting && selectionBox) {
+
+    const wrap = document.getElementById('canvas-wrap').getBoundingClientRect();
+
+    const mx = e.clientX - wrap.left;
+    const my = e.clientY - wrap.top;
+
+    const x = Math.min(mx, selectionStart.x);
+    const y = Math.min(my, selectionStart.y);
+
+    const w = Math.abs(mx - selectionStart.x);
+    const h = Math.abs(my - selectionStart.y);
+
+    selectionBox.style.left = x + 'px';
+    selectionBox.style.top  = y + 'px';
+    selectionBox.style.width  = w + 'px';
+    selectionBox.style.height = h + 'px';
+
+    const selected = [];
+
+    blocks.forEach(b => {
+
+      const bx = parseInt(b.el.style.left);
+      const by = parseInt(b.el.style.top);
+      const bw = b.el.offsetWidth;
+      const bh = b.el.offsetHeight;
+
+      const intersects =
+        bx < x + w &&
+        bx + bw > x &&
+        by < y + h &&
+        by + bh > y;
+
+      b.el.classList.toggle('selected', intersects);
+
+      if(intersects) selected.push(b);
+    });
+
+    selectedBlocks = selected;
+
+    return;
+  }
+  if(draggingBlock) {
+
+    const wrap = document.getElementById('canvas-wrap').getBoundingClientRect();
+
+    let nx = e.clientX - wrap.left - dragOffset.x;
+    let ny = e.clientY - wrap.top  - dragOffset.y;
+
+    const dx = nx - draggingBlock.x;
+    const dy = ny - draggingBlock.y;
+
+    const moveTargets =
+      selectedBlocks.length > 1
+        ? selectedBlocks
+        : [draggingBlock];
+
+    moveTargets.forEach(b => {
+
+      let bx = b.x + dx;
+      let by = b.y + dy;
+
+      bx = Math.max(0, Math.min(bx, wrap.width  - b.el.offsetWidth));
+      by = Math.max(0, Math.min(by, wrap.height - b.el.offsetHeight));
+
+      b.x = bx;
+      b.y = by;
+
+      b.el.style.left = bx + 'px';
+      b.el.style.top  = by + 'px';
+    });
+
+    redrawConnections();
+    return;
+  }
+  if(connectFrom) {
+    const wrap = document.getElementById('canvas-wrap').getBoundingClientRect();
+    const p = getPortPos(connectFrom.block.el, connectFrom.port);
+    tempLine.setAttribute('x1', p.x); tempLine.setAttribute('y1', p.y);
+    tempLine.setAttribute('x2', e.clientX - wrap.left);
+    tempLine.setAttribute('y2', e.clientY - wrap.top);
+  }
+});
+
+document.addEventListener('mouseup', () => {
+
+  draggingBlock = null;
+
+  if(isSelecting) {
+
+    isSelecting = false;
+
+    if(selectionBox) {
+      selectionBox.remove();
+      selectionBox = null;
+    }
+  }
+});
+document.getElementById('canvas-wrap').addEventListener('mousedown', e => {
+
+  if(e.target !== document.getElementById('canvas-wrap') &&
+     e.target !== canvas) return;
+
+  deselectAll();
+  clearMultiSelection();
+
+  isSelecting = true;
+
+  const wrap = document.getElementById('canvas-wrap').getBoundingClientRect();
+
+  selectionStart.x = e.clientX - wrap.left;
+  selectionStart.y = e.clientY - wrap.top;
+
+  selectionBox = document.createElement('div');
+  selectionBox.className = 'selection-box';
+
+  selectionBox.style.left = selectionStart.x + 'px';
+  selectionBox.style.top  = selectionStart.y + 'px';
+
+  canvas.appendChild(selectionBox);
+});
+
+
+// ─── CONNECTIONS ──────────────────────────────────────────────────────────────
+function onPortMouseDown(e) {
+  if(!connectMode) return;
+  e.stopPropagation();
+  const portEl = e.currentTarget;
+  const blockEl = portEl.parentElement;
+  const bd = blocks.find(b=>b.el===blockEl);
+  if(!bd) return;
+
+  if(!connectFrom) {
+    connectFrom = {block:bd, port:portEl.dataset.port};
+    const p = getPortPos(bd.el, portEl.dataset.port);
+    tempLine.setAttribute('x1',p.x); tempLine.setAttribute('y1',p.y);
+    tempLine.setAttribute('x2',p.x); tempLine.setAttribute('y2',p.y);
+    tempLine.style.display='';
+  } else {
+    if(connectFrom.block.id===bd.id) { connectFrom=null; tempLine.style.display='none'; return; }
+    addConnection(connectFrom.block, connectFrom.port, bd, portEl.dataset.port);
+    connectFrom=null;
+    tempLine.style.display='none';
+  }
+}
+
+function addConnection(fromBd, fromPort, toBd, toPort, label='') {
+  const line = document.createElementNS('http://www.w3.org/2000/svg','path');
+  const connColor = getConnectionColor(fromBd);
+
+  line.setAttribute('stroke', connColor);
+  line.setAttribute('stroke-width','3');                   // Dreiecke größer machen
+  line.setAttribute('stroke-opacity','1');                // Linien dicker machen
+  line.setAttribute('stroke-linecap','round');                // Linienenden abrunden
+  line.setAttribute('stroke-linejoin','round');               // Linienverbindungen abrunden
+  line.style.pointerEvents = 'stroke';
+  const hitbox = document.createElementNS('http://www.w3.org/2000/svg','path');
+  hitbox.setAttribute('stroke','transparent');
+  hitbox.setAttribute('stroke-width','12');
+  hitbox.setAttribute('fill','none');
+  hitbox.style.cursor = 'pointer';
+  line.setAttribute('fill','none');
+  line.setAttribute(
+    'marker-end',
+    `url(#arrow-${fromBd.color || 'blue'})`
+  );
+  line.style.cursor='pointer';
+
+  const conn = {id:'c'+(++idCounter), from:fromBd, fromPort, to:toBd, toPort, label, el:line};
+  connections.push(conn);
+
+  line.addEventListener('click', e => {
+    e.stopPropagation();
+
+    if (!deleteLineMode) return;
+
+    svgLayer.removeChild(line);
+    connections = connections.filter(c => c !== conn);
+
+    updateStatus();
+  });
+
+
+  line.addEventListener('mouseenter', () => {
+    line.setAttribute('stroke-width','3');
+  });
+
+  line.addEventListener('mouseleave', () => {
+    if(selectedConn?.el !== line) {
+      line.setAttribute('stroke-width','2');
+    }
+  });
+
+  svgLayer.appendChild(line);
+  redrawConnections();
+  updateStatus();
+}
+
+function redrawConnections() {
+  connections.forEach(c => {
+    const p1 = getPortPos(c.from.el, c.fromPort);
+    const p2 = getPortPos(c.to.el, c.toPort);
+    const dx = (p2.x-p1.x)*0.5, dy = (p2.y-p1.y)*0.5;
+    let cp1x=p1.x, cp1y=p1.y, cp2x=p2.x, cp2y=p2.y;
+    if(c.fromPort==='bottom'||c.fromPort==='top') { cp1y=p1.y+dy; cp2y=p2.y-dy; }
+    else { cp1x=p1.x+dx; cp2x=p2.x-dx; }
+    const d = `M${p1.x},${p1.y} C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
+    c.el.setAttribute('d', d);
+  });
+}
+
+// ─── DROP FROM SIDEBAR ────────────────────────────────────────────────────────
+document.querySelectorAll('.block-template').forEach(tmpl => {
+  tmpl.addEventListener('dragstart', e => {
+    e.dataTransfer.setData('shape', tmpl.dataset.shape);
+    e.dataTransfer.setData('label', tmpl.dataset.label);
+  });
+});
+
+document.getElementById('canvas-wrap').addEventListener('dragover', e => e.preventDefault());
+document.getElementById('canvas-wrap').addEventListener('drop', e => {
+  e.preventDefault();
+  const wrap = document.getElementById('canvas-wrap').getBoundingClientRect();
+  const x = e.clientX - wrap.left - 65;
+  const y = e.clientY - wrap.top  - 28;
+  const shape = e.dataTransfer.getData('shape') || 'rect';
+  const label = e.dataTransfer.getData('label') || 'Block';
+  const bd = createBlock(Math.max(0,x), Math.max(0,y), label, shape);
+  selectBlock(bd);
+});
+
+// ─── TOOLBAR BUTTONS ─────────────────────────────────────────────────────────
+document.getElementById('btn-connect-mode').addEventListener('click', () => {
+  connectMode = !connectMode;
+  connectFrom = null;
+  tempLine.style.display='none';
+  const btn = document.getElementById('btn-connect-mode');
+  btn.style.borderColor = connectMode ? '#4ecdc4' : '';
+  btn.style.color = connectMode ? '#4ecdc4' : '';
+  updateStatus();
+});
+
+document.getElementById('btn-clear-sel').addEventListener('click', deselectAll);
+
+document.getElementById('btn-del-conn').addEventListener('click', () => {
+  deleteLineMode = !deleteLineMode;
+
+  const btn = document.getElementById('btn-del-conn');
+
+  btn.style.borderColor = deleteLineMode ? '#ff6b6b' : '';
+  btn.style.color = deleteLineMode ? '#ff6b6b' : '';
+
+  updateStatus();
+});
+
+document.getElementById('btn-del-block').addEventListener('click', () => {
+  if(selectedBlock) deleteBlock(selectedBlock.id);
+});
+
+document.getElementById('btn-clear-all').addEventListener('click', () => {
+  if(!confirm('Alles löschen?')) return;
+  blocks.forEach(b => canvas.removeChild(b.el));
+  connections.forEach(c => svgLayer.removeChild(c.el));
+  blocks=[]; connections=[];
+  deselectAll(); updateStatus();
+});
+
+// ─── PROPERTY PANEL ───────────────────────────────────────────────────────────
+document.getElementById('prop-label').addEventListener('input', e => {
+  if(!selectedBlock) return;
+  selectedBlock.label = e.target.value;
+  selectedBlock.el.querySelector('.label-input').innerText = e.target.value;
+});
+
+document.getElementById('prop-w').addEventListener('input', e => {
+  if(!selectedBlock) return;
+  selectedBlock.el.style.width = e.target.value+'px';
+  redrawConnections();
+});
+
+document.getElementById('prop-h').addEventListener('input', e => {
+  if(!selectedBlock) return;
+  selectedBlock.el.style.height = e.target.value+'px';
+  redrawConnections();
+});
+
+document.getElementById('prop-shape').addEventListener('change', e => {
+  if(!selectedBlock) return;
+  selectedBlock.shape = e.target.value;
+  selectedBlock.el.className = 'block selected'
+    + (e.target.value==='diamond'?' diamond-block':e.target.value==='circle'?' circle-block':'')
+    + (selectedBlock.color?' color-'+selectedBlock.color:'');
+  redrawConnections();
+});
+
+document.querySelectorAll('.swatch').forEach(sw => {
+  sw.addEventListener('click', () => {
+    if(!selectedBlock) return;
+    selectedBlock.color = sw.dataset.color;
+    // rebuild classes
+    const shape = selectedBlock.shape;
+    selectedBlock.el.className = 'block selected'
+      + (shape==='diamond'?' diamond-block':shape==='circle'?' circle-block':'')
+      + (sw.dataset.color?' color-'+sw.dataset.color:'');
+    document.querySelectorAll('.swatch').forEach(s=>s.classList.remove('active'));
+    sw.classList.add('active');
+  });
+});
+
+// ─── KEYBOARD ─────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT') return;
+  if((e.key==='Delete'||e.key==='Backspace')) {
+    if(selectedBlock) deleteBlock(selectedBlock.id);
+    else if(selectedConn) {
+      svgLayer.removeChild(selectedConn.el);
+      connections=connections.filter(c=>c!==selectedConn);
+      selectedConn=null; updateStatus();
+    }
+  }
+  if(e.key==='Escape') { deselectAll(); connectMode=false; connectFrom=null; tempLine.style.display='none'; updateStatus(); }
+});
+
+// ─── PDF EXPORT ───────────────────────────────────────────────────────────────
+document.getElementById('btn-export').addEventListener('click', () => {
+  document.getElementById('export-modal').classList.add('open');
+});
+document.getElementById('btn-cancel-export').addEventListener('click', () => {
+  document.getElementById('export-modal').classList.remove('open');
+});
+
+document.getElementById('btn-do-export').addEventListener('click', async () => {
+  const fmt    = document.getElementById('pdf-format').value;
+  const orient = document.getElementById('pdf-orient').value;
+  const title  = document.getElementById('pdf-title').value || 'Blockschaltplan';
+  document.getElementById('export-modal').classList.remove('open');
+  deselectAll();
+
+  // Build a clean white export clone
+  const wrap = document.getElementById('canvas-wrap');
+  const origBg = wrap.style.background;
+  wrap.style.background = '#ffffff';
+
+  // Temporarily set light mode for export
+  document.querySelectorAll('.block').forEach(b => {
+
+    b._origBg = b.style.background;
+    b._origBorder = b.style.borderColor;
+    b._origColor = b.style.color;
+
+    const label = b.querySelector('.label-input');
+      // ─── Label Colors ────────────────────────────────────────────────────────────────────
+    if(label){
+      label._origColor = label.style.color;
+      label.style.color = '#111133';
+    }
+
+    if (b.classList.contains('color-blue')) {
+      b.style.background = '#dbe7ff';
+      b.style.borderColor = '#5b8aff';
+    }
+
+    else if (b.classList.contains('color-red')) {
+      b.style.background = '#ffe0e0';
+      b.style.borderColor = '#ff6b6b';
+    }
+
+    else if (b.classList.contains('color-green')) {
+      b.style.background = '#dcfff8';
+      b.style.borderColor = '#4ecdc4';
+    }
+
+    else if (b.classList.contains('color-yellow')) {
+      b.style.background = '#fff5d6';
+      b.style.borderColor = '#ffd166';
+    }
+
+    else if (b.classList.contains('color-purple')) {
+      b.style.background = '#f1ddff';
+      b.style.borderColor = '#c77dff';
+    }
+
+    else {
+      b.style.background = '#f0f4ff';
+      b.style.borderColor = '#3355aa';
+    }
+
+    b.style.color = '#111133';
+  });
+
+  await new Promise(r=>setTimeout(r,50));
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: orient, unit:'mm', format: fmt });
+  const pdfW = pdf.internal.pageSize.getWidth();
+  const pdfH = pdf.internal.pageSize.getHeight();
+
+  // Title
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(16);
+  pdf.setTextColor(30,50,120);
+  pdf.text(title, pdfW/2, 14, {align:'center'});
+
+  // Canvas capture
+  const canvasEl = await html2canvas(wrap, {
+    backgroundColor:'#ffffff',
+    scale: 2,
+    useCORS: true,
+    logging: false
+  });
+
+  const imgData = canvasEl.toDataURL('image/png');
+  const imgW = pdfW - 20;
+  const imgH = (canvasEl.height / canvasEl.width) * imgW;
+  const maxH = pdfH - 24;
+  const finalH = Math.min(imgH, maxH);
+  const finalW = imgH > maxH ? (canvasEl.width/canvasEl.height)*maxH : imgW;
+
+  pdf.addImage(imgData,'PNG', (pdfW-finalW)/2, 20, finalW, finalH);
+
+  // Footer
+  pdf.setFontSize(8);
+  pdf.setTextColor(120,120,140);
+  pdf.text(`BlockPlan Editor — ${new Date().toLocaleDateString('de-DE')}`, pdfW/2, pdfH-6, {align:'center'});
+
+  pdf.save(title.replace(/\s+/g,'_')+'.pdf');
+
+  // Restore
+  wrap.style.background = origBg;
+  document.querySelectorAll('.block').forEach(b => {
+
+    b.style.background  = b._origBg || '';
+    b.style.borderColor = b._origBorder || '';
+    b.style.color       = b._origColor || '';
+
+    const label = b.querySelector('.label-input');
+
+    if(label){
+      label.style.color = label._origColor || '';
+    }
+  });
+});
+
+// ─── LOAD EXAMPLE (your diagram) ─────────────────────────────────────────────
+function loadExample() {
+  const cx = 160, gap = 90;
+  let y = 30;
+  const psu   = createBlock(cx, y,      '24V\nNetzteil',        'rect'); y+=gap;
+  const fuse  = createBlock(cx, y,      '10A\nSicherung',       'rect'); y+=gap;
+  const main  = createBlock(cx, y,      'Haupt-\nschalter',     'rect'); y+=gap;
+  const v12   = createBlock(cx, y,      '12V\nVerteilerblock',  'rect');
+  const mod12 = createBlock(cx+170, y,  '12V\nModule',          'rect'); y+=gap;
+  const sd    = createBlock(cx, y,      'Step-Down\n12V→5V',    'rect'); y+=gap;
+  const v5    = createBlock(cx, y,      '5V\nVerteilerblock',   'rect');
+  const esp   = createBlock(cx+170, y-75,'ESP',                 'rect');
+  const led   = createBlock(cx+170, y,  'LED',                  'rect');
+  const tsc   = createBlock(cx+170, y+75,'Touch-\nScreen',      'rect');
+
+  // colors
+  [psu,fuse,main].forEach(b=>{ b.color='blue'; b.el.classList.add('color-blue'); });
+  [v12,mod12].forEach(b=>{     b.color='yellow'; b.el.classList.add('color-yellow'); });
+  [sd,v5,esp,led,tsc].forEach(b=>{ b.color='green'; b.el.classList.add('color-green'); });
+
+  addConnection(psu,'bottom', fuse,'top');
+  addConnection(fuse,'bottom', main,'top');
+  addConnection(main,'bottom', v12,'top');
+  addConnection(v12,'right',   mod12,'left');
+  addConnection(v12,'bottom',  sd,'top');
+  addConnection(sd,'bottom',   v5,'top');
+  addConnection(v5,'right',    esp,'left');
+  addConnection(v5,'right',    led,'left');
+  addConnection(v5,'right',    tsc,'left');
+}
+
+loadExample();
+updateStatus();
+</script>
+</body>
+</html>
