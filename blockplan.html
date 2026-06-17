@@ -1333,37 +1333,7 @@ document.getElementById('btn-do-export').addEventListener('click', async () => {
   restoreAfterExport(canvasWrap, origBg);
 });
 
-// ─── LOAD EXAMPLE ─────────────────────────────────────────────────────────────
-function loadExample() {
-  const cx = 160, gap = 90;
-  let y = 30;
-  const psu   = createBlock(cx,       y,        '24V\nNetzteil',       'rect'); y += gap;
-  const fuse  = createBlock(cx,       y,        '10A\nSicherung',      'rect'); y += gap;
-  const main  = createBlock(cx,       y,        'Haupt-\nschalter',    'rect'); y += gap;
-  const v12   = createBlock(cx,       y,        '12V\nVerteilerblock', 'rect');
-  const mod12 = createBlock(cx + 170, y,        '12V\nModule',         'rect'); y += gap;
-  const sd    = createBlock(cx,       y,        'Step-Down\n12V→5V',   'rect'); y += gap;
-  const v5    = createBlock(cx,       y,        '5V\nVerteilerblock',  'rect');
-  const esp   = createBlock(cx + 170, y - 75,   'ESP',                 'rect');
-  const led   = createBlock(cx + 170, y,        'LED',                 'rect');
-  const tsc   = createBlock(cx + 170, y + 75,   'Touch-\nScreen',      'rect');
-
-  [psu, fuse, main].forEach(b => { b.color = 'blue';   b.el.classList.add('color-blue');   });
-  [v12, mod12].forEach(b      => { b.color = 'yellow'; b.el.classList.add('color-yellow'); });
-  [sd, v5, esp, led, tsc].forEach(b => { b.color = 'green'; b.el.classList.add('color-green'); });
-
-  addConnection(psu,  'bottom', fuse,  'top');
-  addConnection(fuse, 'bottom', main,  'top');
-  addConnection(main, 'bottom', v12,   'top');
-  addConnection(v12,  'right',  mod12, 'left');
-  addConnection(v12,  'bottom', sd,    'top');
-  addConnection(sd,   'bottom', v5,    'top');
-  addConnection(v5,   'right',  esp,   'left');
-  addConnection(v5,   'right',  led,   'left');
-  addConnection(v5,   'right',  tsc,   'left');
-}
-
-loadExample();
+// ─── INIT ─────────────────────────────────────────────────────────────────────
 updateStatus();
 </script>
 </body>
